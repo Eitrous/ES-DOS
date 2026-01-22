@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import styled, { createGlobalStyle } from 'styled-components';
+import { Analytics } from '@vercel/analytics/react';
 
 // 黑底白字，去掉滚动条
 const DosGlobalStyle = createGlobalStyle`
@@ -389,6 +390,7 @@ function App() {
   return (
     <>
       <DosGlobalStyle color={textColor} />
+      <Analytics />
       <Container ref={containerRef} onClick={keepFocus}>
         {/* 渲染历史记录 */}
         {outputHistory.map((line, i) => (
