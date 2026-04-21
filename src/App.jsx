@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import styled, { createGlobalStyle } from 'styled-components';
+import { getAutocompleteResult } from './core/autocomplete.js';
+import { createCommandExecutor } from './core/commands/executor.js';
+import { FILE_SYSTEM } from './core/filesystem/data.js';
+
+const commandExecutor = createCommandExecutor({ fileSystem: FILE_SYSTEM });
 
 // 黑底白字，去掉滚动条
 const DosGlobalStyle = createGlobalStyle`
@@ -44,42 +49,6 @@ const BlinkingCursor = styled.span`
   }
 `;
 
-// 文件系统
-const FILE_SYSTEM = {
-  type: 'DIR',
-  children: {
-    WINDOWS: {
-      type: 'DIR',
-      children: {
-        SYSTEM32: {
-          type: 'DIR',
-          children: {
-            DRIVERS: {
-              type: 'DIR',
-              children: {},
-            },
-          },
-        },
-      },
-    },
-    DOCUMENTS: {
-      type: 'DIR',
-      children: {
-        'RESUME.TXT': {
-          type: 'TXT',
-          size: '1024',
-          content: 'this is RESUME.TXT',
-        },
-        'README.TXT': {
-          type: 'TXT',
-          size: '18',
-          content: 'this is README.TXT',
-        },
-      },
-    },
-  },
-};
-
 function App() {
   // 历史输出
   const [outputHistory, setOutputHistory] = useState([]);
@@ -89,12 +58,14 @@ function App() {
   const [historyIndex, setHistoryIndex] = useState(0);
   // 正在输入的命令
   const [currentInput, setCurrentInput] = useState('');
+  // Tab 补全循环状态
+  const [tabCycle, setTabCycle] = useState(null);
   // 可输入状态
   const [inputEnable, setInputEnable] = useState(false);
   // 当前路径
   const [currentPath, setCurrentPath] = useState('C:\\');
   // 字体颜色
-  const [textColor, setTextColor] = useState('#c0c0c0');
+  const [textColor] = useState('#c0c0c0');
 
   const containerRef = useRef(null);
   const inputRef = useRef(null);
@@ -102,8 +73,8 @@ function App() {
   // '    ___________       ____  ____  _____ \n   / ____/ ___/      / __ \\/ __ \\/ ___/ \n  / __/  \\__ \\______/ / / / / / /\\__ \\ \n / /___ ___/ /_____/ /_/ / /_/ /___/ / \n/_____//____/     /_____/\\____//____/  \n',
   useEffect(() => {
     const boostSequence = [
-      'GSTRenko(R) Eindows 98\n   (C)Copyright Eitrous 2026.\n\n ███████╗███████╗      ██████╗  ██████╗ ███████╗\n██╔════╝██╔════╝      ██╔══██╗██╔═══██╗██╔════╝\n█████╗  ███████╗█████╗██║  ██║██║   ██║███████╗\n██╔══╝  ╚════██║╚════╝██║  ██║██║   ██║╚════██║\n███████╗███████║      ██████╔╝╚██████╔╝███████║\n╚══════╝╚══════╝      ╚═════╝  ╚═════╝ ╚══════╝\n\n',
-      '',
+      'GSTRenko(R) Eindows 98\n   (C)Copyright Eitrous 2026.\n\n             :===========.     :===========.      \n               :===========.     -===========      \n                 -===========      -===========     \n                   -===========      -==========-    \n                     -==========-      ===========-   \n     -==========-      -==========-       			     \n       -==========-      ===========-                  \n         ===========-      ===========:                 \n           ===========:     .===========:                \n            .===========:     .===========:               \n\n',
+
       "Now you are in Eindows 98 ES-DOS prompt. Type 'HELP' for help.",
       '',
     ];
@@ -138,32 +109,22 @@ function App() {
   // 保持焦点在输入框
   const keepFocus = () => inputRef.current?.focus();
 
-  // 路径解析
-  const getDirByPath = (fs, pathStr) => {
-    if (pathStr === 'C:' || pathStr === 'C:\\') return fs;
+  const setInputWithCursor = (nextValue) => {
+    setCurrentInput(nextValue);
 
-    const parts = pathStr.replace('C:\\', '').split('\\').filter(Boolean);
-
-    let current = fs;
-
-    for (const part of parts) {
-      if (
-        current.type === 'DIR' &&
-        current.children &&
-        current.children[part]
-      ) {
-        current = current.children[part];
-      } else {
-        return null;
+    setTimeout(() => {
+      if (inputRef.current) {
+        const cursorPosition = nextValue.length;
+        inputRef.current.selectionStart = inputRef.current.selectionEnd =
+          cursorPosition;
       }
-    }
-
-    return current;
+    }, 0);
   };
 
   // 执行命令
   const executeCommand = (cmd) => {
     setInputEnable(false);
+    setTabCycle(null);
 
     if (cmd.trim() !== '') {
       setInputHistory((prev) => {
@@ -173,186 +134,119 @@ function App() {
       });
     }
 
-    const command = cmd.trim().toUpperCase();
-    const parts = command.split(' ').filter((i) => i !== ' ');
-    const baseCmd = parts[0];
-    const arg = parts[1];
+    const result = commandExecutor.execute({
+      input: cmd,
+      currentPath,
+    });
 
-    let output = [];
-
-    switch (baseCmd) {
-      case 'HELP':
-        output = [
-          'Supported Commands:',
-          '  CD      - Open fold',
-          '  DIR     - List files and directories',
-          '  CLS     - Clear the screen',
-          '  VER     - Display version',
-          '  EXIT    - Return to Windows 98',
-          '  REBOOT  - Restart system',
-          '  GITHUB  - Redirecting to the GitHub repository',
-          '  BLOG    - Redirecting to the 0x3f-Blog',
-        ];
+    if (result.clearScreen) {
+      setOutputHistory(Array.isArray(result.output) ? result.output : []);
+      if (result.shouldEnableInput) {
         setInputEnable(true);
-        break;
-
-      case 'VER':
-        output = ['ES-DOS version 1.00'];
-        setInputEnable(true);
-        break;
-
-      case 'CLS':
-        setInputEnable(true);
-        setOutputHistory([]);
-        return;
-
-      case 'DIR': {
-        const targetDir = getDirByPath(FILE_SYSTEM, currentPath);
-
-        if (!targetDir || targetDir.type !== 'DIR') {
-          output = ['   Directory not found error.'];
-        } else {
-          output = [`\n   Directory 0f ${currentPath}`, '\n'];
-          const children = targetDir.children || {};
-
-          if (currentPath !== 'C:\\') {
-            output.push(`.                      <DIR>`);
-            output.push(`..                     <DIR>`);
-          }
-
-          Object.keys(children).forEach((name) => {
-            const item = children[name];
-            const nameSpacing = ' '.repeat(Math.max(0, 12 - name.length));
-
-            const dirSpacing = ' '.repeat(10);
-            if (item.type === 'DIR') {
-              output.push(
-                `${name}${nameSpacing} ${dirSpacing}<DIR>${dirSpacing}`,
-              );
-            } else {
-              const typeSpacing = ' '.repeat(
-                Math.max(0, 12 - item.type.length),
-              );
-              const sizeSpacing = ' '.repeat(
-                Math.max(0, 12 - item.size.length),
-              );
-              output.push(
-                `${name}${nameSpacing} ${item.type}${typeSpacing} ${sizeSpacing}${item.size}`,
-              );
-            }
-          });
-
-          const fileCount = Object.values(children).filter(
-            (i) => i.type !== 'DIR',
-          ).length;
-          const countSpacing = ' '.repeat(
-            Math.max(0, 30 - `${fileCount}`.length),
-          );
-          output.push('', `${countSpacing}${fileCount} file(s)`);
-        }
-        setInputEnable(true);
-        break;
       }
+      return;
+    }
 
-      case 'CD': {
-        if (!arg) {
-          output = [currentPath];
-          setInputEnable(true);
-          break;
-        }
+    if (result.nextPath) {
+      setCurrentPath(result.nextPath);
+    }
 
-        let newPath = currentPath;
-
-        if (arg === '\\' || arg === '.') {
-          newPath = 'C:\\';
-        } else if (arg === '..') {
-          if (currentPath.length <= 4) {
-            newPath = 'C:\\';
-          } else {
-            const parts = currentPath.split('\\').filter((p) => p !== '');
-            parts.pop();
-            newPath = parts.join('\\');
-
-            if (!newPath.endsWith('\\')) newPath += '\\';
-            if (newPath === 'C:') newPath = 'C:\\';
-          }
-        } else if (arg.startsWith('C:\\')) {
-          newPath = arg;
-        } else {
-          newPath = currentPath.endsWith('\\')
-            ? currentPath + arg
-            : currentPath + '\\' + arg;
-        }
-
-        const dirObj = getDirByPath(FILE_SYSTEM, newPath);
-        if (dirObj && dirObj.type === 'DIR') {
-          setCurrentPath(newPath);
-        } else {
-          output = ['Invalid directory'];
-        }
-        setInputEnable(true);
-        break;
-      }
-
-      case 'EXIT':
-        output = ['Eindows is now restarting...'];
-        setTimeout(() => {
-          window.location.href = 'https://os.0x-3f.com';
-        }, 2000);
-        break;
-
-      case 'WIN':
-        output = ['Eindows is now restarting'];
-        setTimeout(() => {
-          window.location.href = 'https://os.0x-3f.com';
-        }, 2000);
-        break;
-
-      case 'REBOOT':
-        output = ['ES-DOS is now restarting'];
-        setTimeout(() => {
-          window.location.href = 'https://dos.0x-3f.com';
-        }, 2000);
-        break;
-
-      case 'GITHUB':
-        output = ['Redirecting...'];
-        setTimeout(() => {
-          window.location.href = 'https://github.com/Eitrous/ES-DOS';
-        }, 2000);
-        break;
-
-      case 'BLOG':
-        output = ['Redirecting...'];
-        setTimeout(() => {
-          window.location.href = 'https://0x-3f.com';
-        }, 2000);
-        break;
-
-      case '':
-        setInputEnable(true);
-        break;
-
-      default:
-        output = ['Bad command or file name'];
-        setInputEnable(true);
+    if (result.redirect) {
+      setTimeout(() => {
+        window.location.href = result.redirect.url;
+      }, result.redirect.delayMs || 2000);
     }
 
     setOutputHistory((prev) => [
       ...prev,
       `${currentPath}>${cmd}`,
-      ...output,
+      ...(result.output || []),
       '\n',
     ]);
+
+    if (result.shouldEnableInput) {
+      setInputEnable(true);
+    }
+  };
+
+  const applyAutocomplete = (direction = 1) => {
+    const hasActiveCycle =
+      tabCycle &&
+      tabCycle.currentPath === currentPath &&
+      (currentInput === tabCycle.sourceInput ||
+        tabCycle.cycleInputs.includes(currentInput));
+
+    if (hasActiveCycle) {
+      const cycleInputs = tabCycle.cycleInputs;
+
+      if (cycleInputs.length > 0) {
+        const currentIndex = cycleInputs.indexOf(currentInput);
+        let nextIndex = 0;
+
+        if (currentIndex === -1) {
+          nextIndex = direction >= 0 ? 0 : cycleInputs.length - 1;
+        } else {
+          nextIndex =
+            (currentIndex + direction + cycleInputs.length) %
+            cycleInputs.length;
+        }
+
+        setInputWithCursor(cycleInputs[nextIndex]);
+      }
+
+      return;
+    }
+
+    const completion = getAutocompleteResult({
+      input: currentInput,
+      currentPath,
+      fileSystem: FILE_SYSTEM,
+      commandDefinitions: commandExecutor.commandDefinitions,
+    });
+
+    if (!completion) {
+      setTabCycle(null);
+      return;
+    }
+
+    if (completion.suggestions && completion.suggestions.length > 0) {
+      setOutputHistory((prev) => [
+        ...prev,
+        `${currentPath}>${currentInput}`,
+        `  ${completion.suggestions.join('  ')}`,
+        '\n',
+      ]);
+    }
+
+    if (
+      typeof completion.nextInput === 'string' &&
+      completion.nextInput !== currentInput
+    ) {
+      setInputWithCursor(completion.nextInput);
+    }
+
+    if (completion.cycleInputs && completion.cycleInputs.length > 0) {
+      setTabCycle({
+        sourceInput: completion.nextInput,
+        cycleInputs: completion.cycleInputs,
+        currentPath,
+      });
+    } else {
+      setTabCycle(null);
+    }
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
       executeCommand(currentInput);
       setCurrentInput('');
-      setHistoryIndex(inputHistory.length);
+      setTabCycle(null);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      applyAutocomplete(e.shiftKey ? -1 : 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      setTabCycle(null);
 
       if (historyIndex > 0) {
         const newIndex = historyIndex - 1;
@@ -368,6 +262,7 @@ function App() {
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
+      setTabCycle(null);
 
       if (historyIndex < inputHistory.length) {
         const newIndex = historyIndex + 1;
@@ -384,6 +279,7 @@ function App() {
 
   const handleChange = (e) => {
     setCurrentInput(e.target.value);
+    setTabCycle(null);
   };
 
   return (
