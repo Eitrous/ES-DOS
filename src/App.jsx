@@ -3,6 +3,7 @@ import styled, { createGlobalStyle } from 'styled-components';
 import { getAutocompleteResult } from './core/autocomplete.js';
 import { createCommandExecutor } from './core/commands/executor.js';
 import { FILE_SYSTEM } from './core/filesystem/data.js';
+import { Analytics } from '@vercel/analytics/react';
 
 const commandExecutor = createCommandExecutor({ fileSystem: FILE_SYSTEM });
 
@@ -285,6 +286,7 @@ function App() {
   return (
     <>
       <DosGlobalStyle color={textColor} />
+      <Analytics />
       <Container ref={containerRef} onClick={keepFocus}>
         {/* 渲染历史记录 */}
         {outputHistory.map((line, i) => (
